@@ -1,0 +1,48 @@
+# Gradle/Android outputs and caches
+.gradle/
+.kotlin/
+*.hprof
+build/
+**/build/
+.externalNativeBuild/
+.cxx/
+**/.cxx/
+local.properties
+
+# Generated packages and signing material
+*.apk
+*.aab
+*.apks
+*.idsig
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+**/signing/
+
+# Local secrets, payloads, captures, logs and backups
+.env
+.env.*
+*.log
+logs/
+captures/
+prompts/
+transcripts/
+payloads/
+backups/
+*.bak
+*.orig
+*.old
+
+# IDE/editor/OS state
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Keep the checked-in Gradle wrapper scripts and wrapper JAR.
+!gradle/wrapper/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
