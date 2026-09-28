@@ -11,8 +11,8 @@ android {
         applicationId = "app.rooms"
         minSdk = 28
         targetSdk = 37
-        versionCode = 18
-        versionName = "0.4.6"
+        versionCode = 21
+        versionName = "0.5.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -24,6 +24,18 @@ android {
     }
 
     lint { disable += "NewerVersionAvailable" }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.systemProperty("roborazzi.test.record", "true")
+                it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                it.maxHeapSize = "3g"
+                it.jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED", "--add-opens=java.base/java.lang=ALL-UNNAMED")
+            }
+        }
+    }
 }
 
 dependencies {
@@ -37,4 +49,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     debugImplementation("org.jetbrains.compose.ui:ui-tooling:1.11.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.75.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.75.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4:1.11.2")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.11.2")
 }

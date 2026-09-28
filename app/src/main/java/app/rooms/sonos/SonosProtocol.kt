@@ -22,7 +22,36 @@ data class SonosNowPlaying(
     val durationSeconds: Int? = null
 )
 
-data class SonosDidlItem(val id: String, val title: String, val uri: String?)
+data class SonosDidlItem(
+    val id: String,
+    val title: String,
+    val uri: String?,
+    val artist: String = "",
+    val album: String = "",
+    val artworkUri: String = "",
+    val description: String = "",
+    val metadata: String = "",
+    val upnpClass: String = "",
+    val type: String = "",
+)
+
+/** One ZoneGroupMember or Satellite from the topology, flattened for setup decisions. */
+data class SonosZoneMember(
+    val uid: String,
+    val zoneName: String,
+    val groupCoordinator: String,
+    val groupSize: Int,
+    val invisible: Boolean,
+    val satellite: Boolean,
+    val htSatChanMapSet: String,
+    val channelMapSet: String,
+)
+
+sealed class FavouritePlayback {
+    data class Direct(val uri: String, val metadata: String) : FavouritePlayback()
+    data class Queue(val uri: String, val metadata: String) : FavouritePlayback()
+    data class Unsupported(val reason: String) : FavouritePlayback()
+}
 
 sealed class SonosGroupAction {
     data class Join(val uid: String, val coordinatorUid: String) : SonosGroupAction()
@@ -347,7 +376,8 @@ object SonosProtocol {
     fun eqArguments(type: String, value: Int): String? {
         val range = when (type) {
             "SurroundEnable", "SurroundMode", "NightMode", "DialogLevel" -> 0..1
-            "SurroundLevel", "MusicSurroundLevel" -> -15..15
+            "SurroundLevel", "MusicSurroundLevel", "SubGain" -> -15..15
+            "SubEnable" -> 0..1
             "AudioDelay" -> 0..5
             else -> return null
         }
@@ -427,9 +457,61 @@ object SonosProtocol {
         return SonosNowPlaying(text("title"), text("creator").ifBlank { text("artist") }, text("album"), item.uri.orEmpty(), art, durationSeconds(position), res?.attr("duration")?.let(::durationSeconds))
     }
 
-    fun parseDidlItems(xml: String): List<SonosDidlItem> = parse(xml)?.all("item").orEmpty().map { item ->
-        SonosDidlItem(item.attr("id"), item.all("title").firstOrNull()?.textContent?.trim().orEmpty(), item.all("res").firstOrNull()?.textContent?.trim()?.takeIf { it.isNotBlank() })
+    fun parseDidlItems(xml: String): List<SonosDidlItem> = parse(xml)?.let { root -> root.all("item") + root.all("container") }.orEmpty().map { item ->
+        fun text(name: String) = item.all(name).firstOrNull()?.textContent?.trim().orEmpty()
+        SonosDidlItem(
+            id = item.attr("id"),
+            title = text("title"),
+            uri = text("res").takeIf { it.isNotBlank() },
+            artist = text("creator").ifBlank { text("artist") },
+            album = text("album"),
+            artworkUri = text("albumArtURI"),
+            description = text("description"),
+            metadata = text("resMD"),
+            upnpClass = text("class"),
+            type = text("type"),
+        )
     }
+
+    /** Only replay known Sonos favourite transports; arbitrary speaker-reported URIs are not commands. */
+    fun favouritePlayback(item: SonosDidlItem): FavouritePlayback {
+        val uri = item.uri?.trim().orEmpty()
+        if (uri.isBlank()) return FavouritePlayback.Unsupported("Starts only in the Sonos app")
+        if (uri.length > 8192 || uri.any { it.isISOControl() }) return FavouritePlayback.Unsupported("Unsupported favourite link")
+        val queueSchemes = listOf("x-rincon-cpcontainer:", "x-rincon-playlist:")
+        val localQueueFile = uri.startsWith("file:///jffs/settings/savedqueues/", true) && !uri.contains("..")
+        val directSchemes = listOf("x-sonosapi-stream:", "x-sonosapi-radio:", "x-sonosapi-hls:",
+            "x-rincon-mp3radio:", "x-rincon-queue:")
+        return when {
+            localQueueFile || queueSchemes.any { uri.startsWith(it, true) } -> FavouritePlayback.Queue(uri, item.metadata)
+            directSchemes.any { uri.startsWith(it, true) } -> FavouritePlayback.Direct(uri, item.metadata)
+            else -> FavouritePlayback.Unsupported("Open this favourite in the Sonos app")
+        }
+    }
+
+    /** Flattens every ZoneGroupMember and nested Satellite, keeping group context. */
+    fun zoneMembers(zoneStateXml: String): List<SonosZoneMember> {
+        val root = parse(zoneStateXml) ?: return emptyList()
+        return root.all("ZoneGroup").flatMap { group ->
+            val coordinator = group.attr("Coordinator")
+            val visibleCount = group.all("ZoneGroupMember").count { it.attr("Invisible") != "1" }
+            group.all("ZoneGroupMember").map { false to it }.plus(group.all("Satellite").map { true to it }).mapNotNull { (satellite, node) ->
+                val uid = node.attr("UUID").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                SonosZoneMember(uid, node.attr("ZoneName"), coordinator, visibleCount, node.attr("Invisible") == "1", satellite,
+                    node.attr("HTSatChanMapSet"), node.attr("ChannelMapSet"))
+            }
+        }.distinctBy { it.uid }
+    }
+
+    /** Coordinator and visible members of whichever group contains [uid]. */
+    fun groupContaining(zoneStateXml: String, uid: String): Pair<String, List<String>>? {
+        val group = parse(zoneStateXml)?.all("ZoneGroup")
+            ?.firstOrNull { g -> g.all("ZoneGroupMember").any { it.attr("UUID") == uid } } ?: return null
+        val members = group.all("ZoneGroupMember").filter { it.attr("Invisible") != "1" }.mapNotNull { it.attr("UUID").takeIf(String::isNotBlank) }
+        return group.attr("Coordinator") to members
+    }
+
+    fun queueSubtitle(item: SonosDidlItem): String = listOf(item.artist, item.album).filter(String::isNotBlank).joinToString(" · ")
 
     fun soapText(xml: String, tag: String): String? = parse(xml)?.all(tag)?.firstOrNull()?.textContent?.trim()
     fun parseBooleanValue(xml: String, tag: String): Boolean? = parseIntValue(xml, tag)?.let { it != 0 }
@@ -438,6 +520,7 @@ object SonosProtocol {
         val uri = URI(value); uri.scheme.equals("http", true) && uri.port == 1400 && isLocalSonosLocation("http://${uri.host}:1400/xml/device_description.xml")
     }.getOrDefault(false)
     fun groupJoinUri(coordinatorUid: String) = "x-rincon:$coordinatorUid"
+    fun xmlText(value: String) = xmlEscape(value)
     const val groupLeaveAction = "BecomeCoordinatorOfStandaloneGroup"
 
     private fun xmlEscape(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;")
