@@ -38,19 +38,19 @@ sealed class QuickConnectOutcome {
 class SonosClient(
     context: Context,
     private val timeoutMs: Int = 1500,
-) {
+) : SonosController {
     private val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     private val connectivity = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     @Volatile
-    var lastDiscoveryMessage: String = "Discovery not started"
+    override var lastDiscoveryMessage: String = "Discovery not started"
         private set
 
     @Volatile
-    var lastCommandError: String = ""
+    override var lastCommandError: String = ""
         private set
 
-    fun discoverSystem(): SonosSystem {
+    override fun discoverSystem(): SonosSystem {
         val network = wifiNetwork() ?: run {
             lastDiscoveryMessage = "No usable Wi-Fi route found"
             return SonosSystem(emptyList(), emptyList())
@@ -149,7 +149,7 @@ class SonosClient(
         "<InstanceID>0</InstanceID>",
     )
 
-    fun getRoomState(device: SonosDevice): SonosRoomState {
+    override fun getRoomState(device: SonosDevice): SonosRoomState {
         val target = transportTarget(device)
         val position = soap(target, "AVTransport", "GetPositionInfo", "<InstanceID>0</InstanceID>").orEmpty()
         val media = soap(target, "AVTransport", "GetMediaInfo", "<InstanceID>0</InstanceID>").orEmpty()
@@ -164,27 +164,27 @@ class SonosClient(
     }
 
     fun mute(device: SonosDevice): Boolean? = SonosProtocol.parseBooleanValue(soap(device, "RenderingControl", "GetMute", "<InstanceID>0</InstanceID><Channel>Master</Channel>").orEmpty(), "CurrentMute")
-    fun setMute(device: SonosDevice, value: Boolean): Boolean = soap(device, "RenderingControl", "SetMute", "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>${if (value) 1 else 0}</DesiredMute>") != null
-    fun setBass(device: SonosDevice, value: Int): Boolean = value in -10..10 && soap(device, "RenderingControl", "SetBass", SonosProtocol.soundArguments("bass", value)) != null && bass(device) == value
-    fun setTreble(device: SonosDevice, value: Int): Boolean = value in -10..10 && soap(device, "RenderingControl", "SetTreble", SonosProtocol.soundArguments("treble", value)) != null && treble(device) == value
-    fun setLoudness(device: SonosDevice, value: Boolean): Boolean = soap(device, "RenderingControl", "SetLoudness", SonosProtocol.soundArguments("loudness", if (value) 1 else 0)) != null && loudness(device) == value
-    fun bass(device: SonosDevice): Int? = eq(device, "Bass")
-    fun treble(device: SonosDevice): Int? = eq(device, "Treble")
-    fun loudness(device: SonosDevice): Boolean? = SonosProtocol.parseBooleanValue(
+    override fun setMute(device: SonosDevice, value: Boolean): Boolean = soap(device, "RenderingControl", "SetMute", "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredMute>${if (value) 1 else 0}</DesiredMute>") != null
+    override fun setBass(device: SonosDevice, value: Int): Boolean = value in -10..10 && soap(device, "RenderingControl", "SetBass", SonosProtocol.soundArguments("bass", value)) != null && bass(device) == value
+    override fun setTreble(device: SonosDevice, value: Int): Boolean = value in -10..10 && soap(device, "RenderingControl", "SetTreble", SonosProtocol.soundArguments("treble", value)) != null && treble(device) == value
+    override fun setLoudness(device: SonosDevice, value: Boolean): Boolean = soap(device, "RenderingControl", "SetLoudness", SonosProtocol.soundArguments("loudness", if (value) 1 else 0)) != null && loudness(device) == value
+    override fun bass(device: SonosDevice): Int? = eq(device, "Bass")
+    override fun treble(device: SonosDevice): Int? = eq(device, "Treble")
+    override fun loudness(device: SonosDevice): Boolean? = SonosProtocol.parseBooleanValue(
         soap(device, "RenderingControl", "GetLoudness", "<InstanceID>0</InstanceID><Channel>Master</Channel>").orEmpty(),
         "CurrentLoudness",
     )
-    fun previous(device: SonosDevice): Boolean = soap(transportTarget(device), "AVTransport", "Previous", "<InstanceID>0</InstanceID>") != null
-    fun next(device: SonosDevice): Boolean = soap(transportTarget(device), "AVTransport", "Next", "<InstanceID>0</InstanceID>") != null
-    fun currentTransportActions(device: SonosDevice): Set<String> = soap(transportTarget(device), "AVTransport", "GetCurrentTransportActions", "<InstanceID>0</InstanceID>")?.let(SonosProtocol::transportActions).orEmpty()
-    fun seek(device: SonosDevice, seconds: Int): Boolean {
+    override fun previous(device: SonosDevice): Boolean = soap(transportTarget(device), "AVTransport", "Previous", "<InstanceID>0</InstanceID>") != null
+    override fun next(device: SonosDevice): Boolean = soap(transportTarget(device), "AVTransport", "Next", "<InstanceID>0</InstanceID>") != null
+    override fun currentTransportActions(device: SonosDevice): Set<String> = soap(transportTarget(device), "AVTransport", "GetCurrentTransportActions", "<InstanceID>0</InstanceID>")?.let(SonosProtocol::transportActions).orEmpty()
+    override fun seek(device: SonosDevice, seconds: Int): Boolean {
         if (seconds < 0) return false
         val target = "%02d:%02d:%02d".format(seconds / 3600, (seconds % 3600) / 60, seconds % 60)
         return soap(transportTarget(device), "AVTransport", "Seek", "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>$target</Target>") != null
     }
-    fun queue(device: SonosDevice): List<SonosDidlItem> = browse(transportTarget(device), "Q:0")
-    fun favourites(device: SonosDevice): List<SonosDidlItem> = browse(transportTarget(device), "FV:2")
-    fun playQueueItem(device: SonosDevice, index: Int): Boolean {
+    override fun queue(device: SonosDevice): List<SonosDidlItem> = browse(transportTarget(device), "Q:0")
+    override fun favourites(device: SonosDevice): List<SonosDidlItem> = browse(transportTarget(device), "FV:2")
+    override fun playQueueItem(device: SonosDevice, index: Int): Boolean {
         if (index < 0) return false
         val target = transportTarget(device)
         val uri = "x-rincon-queue:${target.uid}#0"
@@ -192,9 +192,9 @@ class SonosClient(
             soap(target, "AVTransport", "Seek", "<InstanceID>0</InstanceID><Unit>TRACK_NR</Unit><Target>${index + 1}</Target>") != null && play(target)
     }
     fun joinGroup(device: SonosDevice, coordinatorUid: String): Boolean = soap(device, "AVTransport", "SetAVTransportURI", "<InstanceID>0</InstanceID><CurrentURI>${escape(SonosProtocol.groupJoinUri(coordinatorUid))}</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>") != null
-    fun leaveGroup(device: SonosDevice): Boolean = soap(device, "AVTransport", SonosProtocol.groupLeaveAction, "<InstanceID>0</InstanceID>") != null
+    override fun leaveGroup(device: SonosDevice): Boolean = soap(device, "AVTransport", SonosProtocol.groupLeaveAction, "<InstanceID>0</InstanceID>") != null
     fun groupMembers(device: SonosDevice): Set<String> = zoneState(device)?.let { SonosProtocol.groupMembers(it, device.uid) }.orEmpty()
-    fun applyGroup(rooms: List<SonosDevice>, coordinatorUid: String, desiredMembers: Set<String>): SonosGroupResult {
+    override fun applyGroup(rooms: List<SonosDevice>, coordinatorUid: String, desiredMembers: Set<String>): SonosGroupResult {
         val coordinator = rooms.firstOrNull { it.uid == coordinatorUid }
             ?: return SonosGroupResult(false, "Coordinator is unavailable")
         val roomUids = rooms.map(SonosDevice::uid).toSet()
@@ -220,41 +220,42 @@ class SonosClient(
             else -> SonosGroupResult(true, "Group applied and verified")
         }
     }
-    fun soundbarMode(device: SonosDevice, type: String): Boolean? {
+    override fun soundbarMode(device: SonosDevice, type: String): Boolean? {
         if (!supportsSoundbarMode(device.modelName)) return null
         val response = soap(device, "RenderingControl", "GetEQ", "<InstanceID>0</InstanceID><EQType>${escape(type)}</EQType>").orEmpty()
         return SonosProtocol.parseBooleanValue(response, "CurrentValue")
     }
-    fun setSoundbarMode(device: SonosDevice, type: String, enabled: Boolean): Boolean =
+    override fun setSoundbarMode(device: SonosDevice, type: String, enabled: Boolean): Boolean =
         supportsSoundbarMode(device.modelName) && soap(
             device,
             "RenderingControl",
             "SetEQ",
             "<InstanceID>0</InstanceID><EQType>${escape(type)}</EQType><DesiredValue>${if (enabled) 1 else 0}</DesiredValue>",
         ) != null && soundbarMode(device, type) == enabled
-    fun deviceSettings(device: SonosDevice) = SonosDeviceSettings(statusLight(device), touchControls(device))
+    override fun deviceSettings(device: SonosDevice) = SonosDeviceSettings(statusLight(device), touchControls(device))
     fun statusLight(device: SonosDevice): Boolean? = SonosProtocol.parseOnOff(
         soap(device, "DeviceProperties", "GetLEDState", "").orEmpty(), "CurrentLEDState",
     )
-    fun setStatusLight(device: SonosDevice, enabled: Boolean): Boolean =
+    override fun setStatusLight(device: SonosDevice, enabled: Boolean): Boolean =
         soap(device, "DeviceProperties", "SetLEDState", SonosProtocol.devicePropertyArguments("led", enabled)) != null && statusLight(device) == enabled
     fun touchControls(device: SonosDevice): Boolean? = SonosProtocol.parseOnOff(
         soap(device, "DeviceProperties", "GetButtonLockState", "").orEmpty(), "CurrentButtonLockState",
     )?.not()
-    fun setTouchControls(device: SonosDevice, enabled: Boolean): Boolean =
+    override fun setTouchControls(device: SonosDevice, enabled: Boolean): Boolean =
         soap(device, "DeviceProperties", "SetButtonLockState", SonosProtocol.devicePropertyArguments("touch", enabled)) != null && touchControls(device) == enabled
-    fun renameRoom(device: SonosDevice, name: String): Boolean {
+    override fun renameRoom(device: SonosDevice, name: String): Boolean {
         val arguments = SonosProtocol.roomNameArguments(name) ?: return false
         if (soap(device, "DeviceProperties", "SetZoneAttributes", arguments) == null) return false
         return soap(device, "DeviceProperties", "GetZoneAttributes", "")
             ?.let { SonosProtocol.soapText(it, "CurrentZoneName") == name.trim() } == true
     }
-    fun eqValue(device: SonosDevice, type: String): Int? = soap(
+    override fun eqValue(device: SonosDevice, type: String): Int? = soap(
         device, "RenderingControl", "GetEQ", "<InstanceID>0</InstanceID><EQType>${escape(type)}</EQType>",
     )?.let { SonosProtocol.parseIntValue(it, "CurrentValue") }
-    fun setEqValue(device: SonosDevice, type: String, value: Int): Boolean {
+    override fun setEqValue(device: SonosDevice, type: String, value: Int): Boolean {
         val arguments = SonosProtocol.eqArguments(type, value) ?: return false
-        return supportsSoundbarMode(device.modelName) && soap(device, "RenderingControl", "SetEQ", arguments) != null && eqValue(device, type) == value
+        val allowed = supportsSoundbarMode(device.modelName) || type.startsWith("Sub")
+        return allowed && soap(device, "RenderingControl", "SetEQ", arguments) != null && eqValue(device, type) == value
     }
     private fun supportsSoundbarMode(model: String) = listOf("arc", "beam", "ray", "playbar").any { model.contains(it, true) }
     private fun browse(device: SonosDevice, id: String): List<SonosDidlItem> = SonosProtocol.parseDidlItems(
@@ -267,15 +268,151 @@ class SonosClient(
     }
 
 
-    fun play(device: SonosDevice): Boolean = playPause(device, true)
-    fun pause(device: SonosDevice): Boolean = playPause(device, false)
+    // ---- Group volume -------------------------------------------------------------------
 
-    fun volume(device: SonosDevice): Int? = soap(
+    /** Coordinator uid and visible member uids for the group containing [device]. */
+    override fun groupInfo(device: SonosDevice): Pair<String, List<String>>? = zoneState(device)?.let { SonosProtocol.groupContaining(it, device.uid) }
+
+    override fun groupVolume(device: SonosDevice): Int? {
+        val target = transportTarget(device)
+        soap(target, "GroupRenderingControl", "SnapshotGroupVolume", "<InstanceID>0</InstanceID>")
+        return soap(target, "GroupRenderingControl", "GetGroupVolume", "<InstanceID>0</InstanceID>")
+            ?.let { SonosProtocol.parseIntValue(it, "CurrentVolume") }
+    }
+
+    override fun setGroupVolume(device: SonosDevice, value: Int): Boolean {
+        if (value !in 0..100) return false
+        val target = transportTarget(device)
+        soap(target, "GroupRenderingControl", "SnapshotGroupVolume", "<InstanceID>0</InstanceID>")
+        return soap(target, "GroupRenderingControl", "SetGroupVolume", "<InstanceID>0</InstanceID><DesiredVolume>$value</DesiredVolume>") != null
+    }
+
+    /** Hardware volume keys: nudges the whole group when grouped, otherwise the room. */
+    override fun nudgeVolume(device: SonosDevice, delta: Int, grouped: Boolean): Int? = if (grouped) {
+        val target = transportTarget(device)
+        soap(target, "GroupRenderingControl", "SnapshotGroupVolume", "<InstanceID>0</InstanceID>")
+        soap(target, "GroupRenderingControl", "SetRelativeGroupVolume", "<InstanceID>0</InstanceID><Adjustment>$delta</Adjustment>")
+            ?.let { SonosProtocol.parseIntValue(it, "NewVolume") }
+    } else {
+        soap(device, "RenderingControl", "SetRelativeVolume", "<InstanceID>0</InstanceID><Channel>Master</Channel><Adjustment>$delta</Adjustment>")
+            ?.let { SonosProtocol.parseIntValue(it, "NewVolume") }
+    }
+
+    // ---- Favourites & artwork -----------------------------------------------------------
+
+    override fun playFavourite(device: SonosDevice, item: SonosDidlItem): Boolean {
+        val target = transportTarget(device)
+        return when (val plan = SonosProtocol.favouritePlayback(item)) {
+            is FavouritePlayback.Unsupported -> { lastCommandError = plan.reason; false }
+            is FavouritePlayback.Direct -> soap(target, "AVTransport", "SetAVTransportURI",
+                "<InstanceID>0</InstanceID><CurrentURI>${escape(plan.uri)}</CurrentURI><CurrentURIMetaData>${escape(plan.metadata)}</CurrentURIMetaData>") != null && play(target)
+            is FavouritePlayback.Queue -> {
+                soap(target, "AVTransport", "RemoveAllTracksFromQueue", "<InstanceID>0</InstanceID>") != null &&
+                    soap(target, "AVTransport", "AddURIToQueue",
+                        "<InstanceID>0</InstanceID><EnqueuedURI>${escape(plan.uri)}</EnqueuedURI><EnqueuedURIMetaData>${escape(plan.metadata)}</EnqueuedURIMetaData><DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued><EnqueueAsNext>0</EnqueueAsNext>") != null &&
+                    playQueueItem(target, 0)
+            }
+        }
+    }
+
+    /** Album art is fetched only from the speaker that reported it (validated local :1400 URL). */
+    override fun artwork(url: String): ByteArray? {
+        if (!SonosProtocol.isSafeArtworkUri(url)) return null
+        val network = wifiNetwork() ?: return null
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (network.openConnection(URL(url)) as HttpURLConnection).apply {
+                connectTimeout = timeoutMs; readTimeout = 4000; instanceFollowRedirects = false
+            }
+            if (connection.responseCode !in 200..299) null
+            else connection.inputStream.use { stream ->
+                val bytes = stream.readBytes()
+                bytes.takeIf { it.size <= 4 * 1024 * 1024 }
+            }
+        } catch (_: Exception) { null } finally { connection?.disconnect() }
+    }
+
+    // ---- Speaker setup ------------------------------------------------------------------
+
+    /** Blinks the status light so you can tell which physical speaker is which, then restores it. */
+    override fun identify(device: SonosDevice): Boolean {
+        val original = statusLight(device) ?: return false
+        var ok = true
+        repeat(4) {
+            ok = ok && soap(device, "DeviceProperties", "SetLEDState", SonosProtocol.devicePropertyArguments("led", !original)) != null
+            Thread.sleep(450)
+            ok = ok && soap(device, "DeviceProperties", "SetLEDState", SonosProtocol.devicePropertyArguments("led", original)) != null
+            Thread.sleep(450)
+        }
+        return ok
+    }
+
+    override fun zoneMembers(any: SonosDevice): List<SonosZoneMember>? = zoneState(any)?.let(SonosProtocol::zoneMembers)
+
+    /**
+     * Ordered setup workflow:
+     * fresh topology → re-validate → ungroup helpers → one DeviceProperties command → poll until verified.
+     * Ungrouping can persist even if a later step fails; report that partial change honestly.
+     * Never retries a bond, never resets, never touches rooms outside the task.
+     */
+    @Synchronized
+    override fun runSetup(task: SetupTask, devices: Map<String, SonosDevice>, progress: (String) -> Unit): SetupOutcome {
+        val command = SonosSetup.command(task)
+        val target = devices[command.targetUid]?.let(::resolve)
+            ?: return SetupOutcome.Failed("Couldn't reach ${devices[command.targetUid]?.roomName ?: "that speaker"}. Check it's powered on and on this Wi-Fi.")
+        progress("Checking your current setup…")
+        val before = zoneMembers(target) ?: return SetupOutcome.Failed("Couldn't read your speaker setup. Check Wi-Fi and try again.")
+        SonosSetup.preflight(task, before)?.let { return SetupOutcome.Failed(it) }
+        var ungrouped = false
+        fun partialChangeWarning() = if (ungrouped)
+            " Some rooms were removed from their groups. Refresh Rooms and re-group them if needed."
+        else " Check Rooms before retrying."
+        SonosSetup.mustBeStandalone(task).forEach { uid ->
+            val member = before.firstOrNull { it.uid == uid }
+            if (member != null && member.groupSize > 1) {
+                val device = devices[uid] ?: return SetupOutcome.Failed("A selected speaker isn't reachable.${partialChangeWarning()}")
+                progress("Taking ${member.zoneName} out of its group…")
+                if (!leaveGroup(device)) return SetupOutcome.Failed("Couldn't take ${member.zoneName} out of its group. ${lastCommandError}${partialChangeWarning()}".trim())
+                ungrouped = true
+            }
+        }
+        progress("Sending the change to ${target.roomName.ifBlank { target.modelName }}…")
+        if (soap(target, "DeviceProperties", command.action, command.arguments) == null) {
+            val reason = lastCommandError.ifBlank { "the speaker didn't confirm it" }
+            return SetupOutcome.Failed("Couldn't confirm the change ($reason).${partialChangeWarning()}")
+        }
+        progress("Waiting for the speakers to confirm…")
+        repeat(15) {
+            Thread.sleep(2_000)
+            val after = zoneMembers(target)
+            if (after != null && SonosSetup.verified(task, after)) {
+                if (task is SetupTask.StereoPair && task.roomName.isNotBlank() && task.roomName != task.left.roomName) {
+                    progress("Naming the room…")
+                    if (!renameRoom(target, task.roomName)) return SetupOutcome.Done("Paired. The name couldn't be changed; rename it in Room settings.")
+                }
+                return SetupOutcome.Done(doneMessage(task))
+            }
+        }
+        return SetupOutcome.Pending("The change was sent, but the speakers haven't confirmed yet. Wait a minute, then refresh. If it still hasn't changed, power-cycle the speakers involved.${if (ungrouped) partialChangeWarning() else ""}")
+    }
+
+    private fun doneMessage(task: SetupTask) = when (task) {
+        is SetupTask.AddSub -> "${task.sub.roomName.ifBlank { "Sub" }} is now part of ${task.main.roomName}. Adjust Sub level in Sound."
+        is SetupTask.AddSurrounds -> "Surrounds added to ${task.main.roomName}. Adjust surround level in Sound."
+        is SetupTask.StereoPair -> "${task.roomName} is now a stereo pair."
+        is SetupTask.RemoveSatellite -> "${task.satelliteLabel} is its own room again."
+        is SetupTask.SeparatePair -> "The pair is separated. Both speakers are rooms again."
+    }
+
+    override fun play(device: SonosDevice): Boolean = playPause(device, true)
+    override fun pause(device: SonosDevice): Boolean = playPause(device, false)
+
+    override fun volume(device: SonosDevice): Int? = soap(
         device, "RenderingControl", "GetVolume",
         "<InstanceID>0</InstanceID><Channel>Master</Channel>",
     )?.let { Regex("<CurrentVolume>(\\d+)</CurrentVolume>").find(it)?.groupValues?.get(1)?.toInt() }
 
-    fun setVolume(device: SonosDevice, value: Int): Boolean {
+    override fun setVolume(device: SonosDevice, value: Int): Boolean {
         require(value in 0..100) { "volume must be 0..100" }
         return soap(device, "RenderingControl", "SetVolume", "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>$value</DesiredVolume>") != null
     }
@@ -309,7 +446,7 @@ class SonosClient(
 
     /** Serialize recovery across entry points; every IO step uses the resolved soundbar. */
     @Synchronized
-    fun quickConnect(storedTarget: SonosDevice): QuickConnectOutcome = QuickConnectTransaction.run(
+    override fun quickConnect(storedTarget: SonosDevice): QuickConnectOutcome = QuickConnectTransaction.run(
         storedTarget,
         resolve = ::resolve,
         topology = ::zoneState,
